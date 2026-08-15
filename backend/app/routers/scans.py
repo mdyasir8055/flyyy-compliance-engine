@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import models, schemas
-from app.services.evaluator import evaluate_control, compare_value
+from app.services.evaluator import evaluate_control, compare_value, interpret_truthy
 from app.services.groq_client import generate_audit_reasoning, reconcile_evidence
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
@@ -115,12 +115,22 @@ def run_scan(payload: schemas.ScanCreate, db: Session = Depends(get_db)):
                     and str(control.threshold).strip().lower() in ("true", "false")
                 )
                 value_for_grading = raw_value
-                if is_boolean_control and bool_interp is not None:
+                if is_boolean_control:
                     is_literal_bool = isinstance(raw_value, bool) or (
                         isinstance(raw_value, str) and raw_value.strip().lower() in ("true", "false")
                     )
                     if not is_literal_bool:
-                        value_for_grading = bool_interp
+                        if bool_interp is not None:
+                            # Preferred: the AI's own judgment call from reconciliation.
+                            value_for_grading = bool_interp
+                        else:
+                            # Fallback: the AI didn't include boolean_interpretation for
+                            # this match (happens sometimes on complex responses) - use
+                            # the deterministic word-list interpreter instead of silently
+                            # falling through to a raw string comparison that would be wrong.
+                            fallback = interpret_truthy(raw_value)
+                            if fallback is not None:
+                                value_for_grading = fallback
 
                 matched.append({
                     "asset_name": m.get("asset_name", control.target),

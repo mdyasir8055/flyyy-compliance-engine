@@ -57,6 +57,40 @@ def compare_value(actual_value: Any, operator: str, threshold: Any) -> bool:
     return _compare(actual_value, operator, threshold)
 
 
+_TRUTHY_WORDS = {
+    "true", "yes", "y", "enabled", "active", "elastic", "on", "automatic",
+    "automated", "present", "configured", "daily", "hourly", "weekly",
+    "monthly", "continuous", "scheduled",
+}
+_FALSY_WORDS = {
+    "false", "no", "n", "disabled", "inactive", "off", "none", "manual",
+    "absent", "null", "n/a", "not configured", "never", "unset",
+}
+
+
+def interpret_truthy(raw_value: Any) -> Optional[bool]:
+    """
+    Deterministic, code-level fallback for interpreting non-literal boolean
+    evidence (e.g. "elastic", "daily", "none") when the AI reconciliation step
+    didn't supply its own boolean_interpretation for a match. This never calls
+    an LLM - it's a fixed word list, so it's fast, free, and 100% reproducible.
+    Returns None (unknown) if the raw value doesn't match a known word, in
+    which case the caller should fall back to raw comparison or "Not Evaluated".
+    """
+    if isinstance(raw_value, bool):
+        return raw_value
+    if raw_value is None:
+        return False
+    if isinstance(raw_value, (int, float)):
+        return raw_value != 0
+    text = str(raw_value).strip().lower()
+    if text in _TRUTHY_WORDS:
+        return True
+    if text in _FALSY_WORDS:
+        return False
+    return None
+
+
 def find_asset(evidence: dict, target: str) -> Optional[dict]:
     assets = evidence.get("assets", [])
     for asset in assets:
