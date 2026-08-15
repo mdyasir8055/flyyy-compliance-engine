@@ -31,3 +31,6 @@ uploads/
 
 # Secrets
 *.pem
+
+backend/.env
+.env
