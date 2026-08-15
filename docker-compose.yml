@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flyyy
+      POSTGRES_PASSWORD: flyyy
+      POSTGRES_DB: flyyy
+    ports:
+      - "5432:5432"
+    volumes:
+      - flyyy_pg_data:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql://flyyy:flyyy@db:5432/flyyy
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL: llama-3.3-70b-versatile
+      CORS_ORIGINS: http://localhost:5173
+    ports:
+      - "8000:8000"
+
+volumes:
+  flyyy_pg_data:
