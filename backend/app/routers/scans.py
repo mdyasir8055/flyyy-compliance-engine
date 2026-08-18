@@ -203,6 +203,16 @@ def run_scan(payload: schemas.ScanCreate, db: Session = Depends(get_db)):
     )
 
 
+@router.delete("/{scan_id}")
+def delete_scan(scan_id: str, db: Session = Depends(get_db)):
+    scan = db.query(models.Scan).filter(models.Scan.id == scan_id).first()
+    if not scan:
+        raise HTTPException(404, "Scan not found")
+    db.delete(scan)
+    db.commit()
+    return {"deleted": scan_id}
+
+
 @router.get("/{scan_id}", response_model=schemas.ScanDetailOut)
 def get_scan(scan_id: str, db: Session = Depends(get_db)):
     scan = db.query(models.Scan).filter(models.Scan.id == scan_id).first()

@@ -27,3 +27,13 @@ def summary(db: Session = Depends(get_db)):
         failed=failed,
         score=round(avg_score) if avg_score else 0,
     )
+
+
+@router.delete("/reset")
+def reset_all_data(db: Session = Depends(get_db)):
+    db.query(models.ScanResult).delete()
+    db.query(models.Scan).delete()
+    db.query(models.Control).delete()
+    db.query(models.Policy).delete()
+    db.commit()
+    return {"reset": True}

@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useEffect,useState} from 'react';
 import {Routes,Route,Link,useLocation,useNavigate,useParams} from 'react-router-dom';
 import {useQuery,useMutation,useQueryClient} from '@tanstack/react-query';
 import {LayoutDashboard,FileText,UploadCloud,ScanLine,Search,Sun,Moon,Plus,ArrowUpRight,CheckCircle2,AlertTriangle,XCircle,MoreHorizontal,ChevronRight,Activity,Menu,Filter,Pencil,Trash2} from 'lucide-react';
@@ -12,14 +12,27 @@ function fmtDate(iso?:string){if(!iso)return '';const d=new Date(iso);return d.t
 
 function Shell({children}:any){const [dark,setDark]=useState(false);const [mobile,setMobile]=useState(false);const loc=useLocation();const nav=[['/','Overview',LayoutDashboard],['/policies','Policies',FileText],['/scans/new','Compliance scans',ScanLine]];return <div className={cn('app',dark&&'dark')}><aside className={cn('sidebar',mobile&&'open')}><div className="brand"><div className="brandmark">F</div><span>FLYYY<span className="accent">.AI</span></span><button className="mobile-close" onClick={()=>setMobile(false)}>×</button></div><nav>{nav.map(([href,label,Icon]:any)=><Link key={href} to={href} onClick={()=>setMobile(false)} className={loc.pathname===href?'active':''}><Icon size={17}/>{label}</Link>)}</nav></aside><main><header><button className="mobile-menu" onClick={()=>setMobile(true)}><Menu/></button><div className="crumb"><b>{loc.pathname==='/' ? 'Overview':loc.pathname.includes('polic')?'Policies':loc.pathname.includes('scan')?'Compliance scans':'Overview'}</b></div><div className="top-actions"><div className="search"><Search size={16}/><input placeholder="Search anything..."/></div><button className="icon-btn" onClick={()=>setDark(!dark)}>{dark?<Sun size={17}/>:<Moon size={17}/>}</button></div></header>{children}</main></div>}
 function PageTitle({eyebrow,title,description,action}:any){return <div className="page-title"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action}</div>}
+function ConfirmDialog({title,message,onConfirm,onCancel}:any){return <div style={{position:'fixed',inset:0,background:'rgba(10,14,20,0.56)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}} onClick={onCancel}><div style={{width:420,maxWidth:'calc(100vw - 32px)',background:'#111827',border:'1px solid rgba(148,163,184,0.25)',borderRadius:16,padding:24,boxShadow:'0 20px 60px rgba(0,0,0,0.4)'}} onClick={e=>e.stopPropagation()}><h3 style={{margin:'0 0 12px',fontSize:20,color:'#f8fafc'}}>{title}</h3><p style={{margin:'0 0 20px',color:'#cbd5e1',lineHeight:1.5}}>{message}</p><div style={{display:'flex',justifyContent:'flex-end',gap:12}}><button type="button" className="btn" onClick={onCancel}>Cancel</button><button type="button" className="btn btn-primary" onClick={()=>{onConfirm();onCancel();}}>{title.includes('Reset')?'Reset':'Confirm'}</button></div></div></div>}
 function Stat({label,value,change,icon:Icon,tone='blue'}:any){return <div className="stat"><div className={cn('stat-icon',`tone-${tone}`)}><Icon size={18}/></div><div className="stat-copy"><span>{label}</span><strong>{value}</strong><small className={change?.startsWith('+')?'positive':''}>{change}</small></div></div>}
 
 function Dashboard(){
   const navigate=useNavigate();
+  const qc=useQueryClient();
+  const [confirm,setConfirm]=useState<any>(null);
   const {data:summary}=useQuery({queryKey:['summary'],queryFn:api.getDashboardSummary});
   const {data:scans}=useQuery({queryKey:['scans'],queryFn:api.getScans});
+  const resetMut=useMutation({
+    mutationFn:()=>api.resetAllData(),
+    onSuccess:()=>{
+      qc.invalidateQueries({queryKey:['policies']});
+      qc.invalidateQueries({queryKey:['scans']});
+      qc.invalidateQueries({queryKey:['summary']});
+      qc.invalidateQueries({queryKey:['dashboard']});
+    },
+  });
   const notEvaluated=summary?Math.max(summary.scans*0,0):0;
-  return <section className="page"><PageTitle eyebrow="Workspace overview" title="Good morning" description="Monitor your organization's compliance posture and policy coverage." action={<Button primary icon={Plus} onClick={()=>navigate('/scans/new')}>Run a scan</Button>}/>
+  return <section className="page"><PageTitle eyebrow="Workspace overview" title="Good morning" description="Monitor your organization's compliance posture and policy coverage." action={<div className="inline-actions"><Button icon={Trash2} onClick={()=>setConfirm({title:'Reset all data',message:'This will permanently delete ALL policies, controls, scans, and results. This cannot be undone. Continue?',onConfirm:()=>resetMut.mutate()})}>Reset all data</Button><Button primary icon={Plus} onClick={()=>navigate('/scans/new')}>Run a scan</Button></div>}/>
+  {confirm&&<ConfirmDialog title={confirm.title} message={confirm.message} onConfirm={confirm.onConfirm} onCancel={()=>setConfirm(null)}/>} 
   <div className="stats">
     <Stat label="Total policies" value={String(summary?.policies??0).padStart(2,'0')} change="" icon={FileText}/>
     <Stat label="Compliance scans" value={String(summary?.scans??0).padStart(2,'0')} change="" icon={Activity} tone="teal"/>
@@ -34,14 +47,52 @@ function Dashboard(){
   </section>
 }
 
-function ScanTable({rows}:any){const navigate=useNavigate();return <div className="table-scroll"><table><thead><tr><th>Policy</th><th>Run date</th><th>Assets</th><th>Score</th><th>Status</th><th></th></tr></thead><tbody>{rows.map((r:api.Scan)=><tr key={r.id} className="clickable" onClick={()=>navigate(`/scans/${r.id}/results`)}><td><strong>{r.policy_name}</strong><small>{r.id.toUpperCase()}</small></td><td>{fmtDate(r.run_at)}</td><td>{r.assets}</td><td><strong>{r.score}%</strong></td><td><Badge tone={r.status==='Compliant'?'green':'amber'}>{r.status}</Badge></td><td><MoreHorizontal size={17}/></td></tr>)}{rows.length===0&&<tr><td colSpan={6} className="empty-row">No scans yet. Run your first compliance scan.</td></tr>}</tbody></table></div>}
+function ScanTable({rows}:any){
+  const navigate=useNavigate();
+  const qc=useQueryClient();
+  const [openMenuId,setOpenMenuId]=useState<string|null>(null);
+  const [confirm,setConfirm]=useState<any>(null);
+  useEffect(()=>{
+    const handleOutsideClick=(event:MouseEvent)=>{
+      const target=event.target;
+      if(!(target instanceof Element)) return;
+      if(!target.closest('.row-actions')) setOpenMenuId(null);
+    };
+    document.addEventListener('mousedown',handleOutsideClick);
+    return ()=>document.removeEventListener('mousedown',handleOutsideClick);
+  },[]);
+  const deleteMut=useMutation({
+    mutationFn:(id:string)=>api.deleteScan(id),
+    onSuccess:()=>{
+      qc.invalidateQueries({queryKey:['scans']});
+      qc.invalidateQueries({queryKey:['summary']});
+      qc.invalidateQueries({queryKey:['dashboard']});
+    },
+  });
+  return <div className="table-scroll"><table><thead><tr><th>Policy</th><th>Run date</th><th>Assets</th><th>Score</th><th>Status</th><th></th></tr></thead><tbody>{rows.map((r:api.Scan)=><tr key={r.id} className="clickable" onClick={()=>navigate(`/scans/${r.id}/results`)}><td><strong>{r.policy_name}</strong><small>{r.id.toUpperCase()}</small></td><td>{fmtDate(r.run_at)}</td><td>{r.assets}</td><td><strong>{r.score}%</strong></td><td><Badge tone={r.status==='Compliant'?'green':'amber'}>{r.status}</Badge></td><td><div className="row-actions" onClick={e=>e.stopPropagation()}><button type="button" onClick={e=>{e.stopPropagation();setOpenMenuId(current=>current===r.id?null:r.id);}} aria-label={`Open actions for ${r.id}`}><MoreHorizontal size={17}/></button>{openMenuId===r.id&&<div className="row-actions-menu" onClick={e=>e.stopPropagation()}><button type="button" onClick={e=>{e.stopPropagation();setConfirm({title:'Delete this scan',message:'Delete this scan? This cannot be undone.',onConfirm:()=>deleteMut.mutate(r.id)});setOpenMenuId(null);}}>Delete</button></div>}</div></td></tr>)}{rows.length===0&&<tr><td colSpan={6} className="empty-row">No scans yet. Run your first compliance scan.</td></tr>}</tbody></table>{confirm&&<ConfirmDialog title={confirm.title} message={confirm.message} onConfirm={confirm.onConfirm} onCancel={()=>setConfirm(null)}/>}</div>}
 
 function Policies(){
   const navigate=useNavigate();
+  const qc=useQueryClient();
+  const [openMenuId,setOpenMenuId]=useState<string|null>(null);
+  const [confirm,setConfirm]=useState<any>(null);
+  useEffect(()=>{
+    const handleOutsideClick=(event:MouseEvent)=>{
+      const target=event.target;
+      if(!(target instanceof Element)) return;
+      if(!target.closest('.row-actions')) setOpenMenuId(null);
+    };
+    document.addEventListener('mousedown',handleOutsideClick);
+    return ()=>document.removeEventListener('mousedown',handleOutsideClick);
+  },[]);
+  const deleteMut=useMutation({
+    mutationFn:(id:string)=>api.deletePolicy(id),
+    onSuccess:()=>qc.invalidateQueries({queryKey:['policies']}),
+  });
   const {data:policies,isLoading}=useQuery({queryKey:['policies'],queryFn:api.getPolicies});
   return <section className="page"><PageTitle eyebrow="Governance library" title="Policies" description="Manage the policies that power your compliance evaluations." action={<Button primary icon={UploadCloud} onClick={()=>navigate('/policies/upload')}>Upload policy</Button>}/>
   <div className="toolbar"><div className="search large"><Search size={16}/><input placeholder="Search policies..."/></div><Button icon={Filter}>Filters</Button></div>
-  <div className="card table-card">{isLoading?<div className="empty-row">Loading policies...</div>:<div className="table-scroll"><table><thead><tr><th>Policy name</th><th>Framework</th><th>Uploaded</th><th>Controls</th><th>Status</th><th></th></tr></thead><tbody>{(policies??[]).map(p=><tr key={p.id} onClick={()=>navigate(`/policies/${p.id}`)} className="clickable"><td><strong>{p.name}</strong><small>{p.id}</small></td><td><Badge>{p.framework}</Badge></td><td>{fmtDate(p.uploaded_at)}</td><td>{p.controls_count}</td><td><Badge tone={p.status==='Active'?'green':'neutral'}>{p.status}</Badge></td><td><MoreHorizontal size={17}/></td></tr>)}{(policies??[]).length===0&&<tr><td colSpan={6} className="empty-row">No policies yet. Upload a PDF to get started.</td></tr>}</tbody></table></div>}</div>
+  <div className="card table-card">{isLoading?<div className="empty-row">Loading policies...</div>:<div className="table-scroll"><table><thead><tr><th>Policy name</th><th>Framework</th><th>Uploaded</th><th>Controls</th><th>Status</th><th></th></tr></thead><tbody>{(policies??[]).map(p=><tr key={p.id} onClick={()=>navigate(`/policies/${p.id}`)} className="clickable"><td><strong>{p.name}</strong><small>{p.id}</small></td><td><Badge>{p.framework}</Badge></td><td>{fmtDate(p.uploaded_at)}</td><td>{p.controls_count}</td><td><Badge tone={p.status==='Active'?'green':'neutral'}>{p.status}</Badge></td><td><div className="row-actions" onClick={e=>e.stopPropagation()}><button type="button" onClick={e=>{e.stopPropagation();setOpenMenuId(current=>current===p.id?null:p.id);}} aria-label={`Open actions for ${p.name}`}><MoreHorizontal size={17}/></button>{openMenuId===p.id&&<div className="row-actions-menu" onClick={e=>e.stopPropagation()}><button type="button" onClick={e=>{e.stopPropagation();setConfirm({title:'Delete this policy',message:'Delete this policy and all its scans? This cannot be undone.',onConfirm:()=>deleteMut.mutate(p.id)});setOpenMenuId(null);}}>Delete</button></div>}</div></td></tr>)}{(policies??[]).length===0&&<tr><td colSpan={6} className="empty-row">No policies yet. Upload a PDF to get started.</td></tr>}</tbody></table>{confirm&&<ConfirmDialog title={confirm.title} message={confirm.message} onConfirm={confirm.onConfirm} onCancel={()=>setConfirm(null)}/>}</div>}</div>
   </section>
 }
 

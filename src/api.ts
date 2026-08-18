@@ -69,6 +69,13 @@ export const uploadPolicy = (file: File, name?: string, framework = 'Internal') 
 };
 export const deletePolicy = (id: string) => api.delete(`/api/policies/${id}`);
 
+// ---------- Scans ----------
+export const getScans = () => api.get<Scan[]>('/api/scans').then(r => r.data);
+export const runScan = (policyId: string, evidence: any) =>
+  api.post<ScanDetail>('/api/scans', { policy_id: policyId, evidence }).then(r => r.data);
+export const getScan = (id: string) => api.get<ScanDetail>(`/api/scans/${id}`).then(r => r.data);
+export const deleteScan = (id: string) => api.delete(`/api/scans/${id}`);
+
 // ---------- Controls ----------
 export const addControl = (policyId: string, control: Partial<Control>) =>
   api.post<Control>(`/api/policies/${policyId}/controls`, control).then(r => r.data);
@@ -77,12 +84,7 @@ export const updateControl = (policyId: string, controlId: string, control: Part
 export const deleteControl = (policyId: string, controlId: string) =>
   api.delete(`/api/policies/${policyId}/controls/${controlId}`);
 
-// ---------- Scans ----------
-export const getScans = () => api.get<Scan[]>('/api/scans').then(r => r.data);
-export const runScan = (policyId: string, evidence: any) =>
-  api.post<ScanDetail>('/api/scans', { policy_id: policyId, evidence }).then(r => r.data);
-export const getScan = (id: string) => api.get<ScanDetail>(`/api/scans/${id}`).then(r => r.data);
-
 // ---------- Dashboard ----------
 export const getDashboardSummary = () =>
   api.get<DashboardSummary>('/api/dashboard/summary').then(r => r.data);
+export const resetAllData = () => api.delete('/api/dashboard/reset');
