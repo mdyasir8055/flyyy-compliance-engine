@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, date, timedelta
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -17,8 +20,17 @@ def _to_scan_out(s: models.Scan) -> schemas.ScanOut:
 
 
 @router.get("", response_model=list[schemas.ScanOut])
-def list_scans(db: Session = Depends(get_db)):
-    scans = db.query(models.Scan).order_by(models.Scan.run_at.desc()).all()
+def list_scans(
+    db: Session = Depends(get_db),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+):
+    query = db.query(models.Scan)
+    if start_date:
+        query = query.filter(models.Scan.run_at >= datetime.combine(start_date, datetime.min.time()))
+    if end_date:
+        query = query.filter(models.Scan.run_at < datetime.combine(end_date + timedelta(days=1), datetime.min.time()))
+    scans = query.order_by(models.Scan.run_at.desc()).all()
     return [_to_scan_out(s) for s in scans]
 
 

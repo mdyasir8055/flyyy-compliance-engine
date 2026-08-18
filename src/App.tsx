@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useMemo,useState} from 'react';
 import {Routes,Route,Link,useLocation,useNavigate,useParams} from 'react-router-dom';
 import {useQuery,useMutation,useQueryClient} from '@tanstack/react-query';
 import {LayoutDashboard,FileText,UploadCloud,ScanLine,Search,Sun,Moon,Plus,ArrowUpRight,CheckCircle2,AlertTriangle,XCircle,MoreHorizontal,ChevronRight,Activity,Menu,Filter,Pencil,Trash2} from 'lucide-react';
@@ -19,8 +19,22 @@ function Dashboard(){
   const navigate=useNavigate();
   const qc=useQueryClient();
   const [confirm,setConfirm]=useState<any>(null);
-  const {data:summary}=useQuery({queryKey:['summary'],queryFn:api.getDashboardSummary});
-  const {data:scans}=useQuery({queryKey:['scans'],queryFn:api.getScans});
+  const [dateRange, setDateRange] = useState<'all'|'today'|'7d'|'30d'|'custom'>('all');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+
+  const {start, end} = useMemo(() => {
+    const today = new Date();
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    if (dateRange === 'today') return {start: fmt(today), end: fmt(today)};
+    if (dateRange === '7d') { const d = new Date(today); d.setDate(d.getDate()-6); return {start: fmt(d), end: fmt(today)}; }
+    if (dateRange === '30d') { const d = new Date(today); d.setDate(d.getDate()-29); return {start: fmt(d), end: fmt(today)}; }
+    if (dateRange === 'custom' && customStart && customEnd) return {start: customStart, end: customEnd};
+    return {start: undefined, end: undefined};
+  }, [dateRange, customStart, customEnd]);
+
+  const {data:summary}=useQuery({queryKey:['summary',start,end],queryFn:()=>api.getDashboardSummary(start,end)});
+  const {data:scans}=useQuery({queryKey:['scans',start,end],queryFn:()=>api.getScans(start,end)});
   const resetMut=useMutation({
     mutationFn:()=>api.resetAllData(),
     onSuccess:()=>{
@@ -32,6 +46,20 @@ function Dashboard(){
   });
   const notEvaluated=summary?Math.max(summary.scans*0,0):0;
   return <section className="page"><PageTitle eyebrow="Workspace overview" title="Good morning" description="Monitor your organization's compliance posture and policy coverage." action={<div className="inline-actions"><Button icon={Trash2} onClick={()=>setConfirm({title:'Reset all data',message:'This will permanently delete ALL policies, controls, scans, and results. This cannot be undone. Continue?',onConfirm:()=>resetMut.mutate()})}>Reset all data</Button><Button primary icon={Plus} onClick={()=>navigate('/scans/new')}>Run a scan</Button></div>}/>
+  <div className="inline-actions" style={{marginBottom: '16px'}}>
+    <select value={dateRange} onChange={e=>setDateRange(e.target.value as any)} className="select">
+      <option value="all">All time</option>
+      <option value="today">Today</option>
+      <option value="7d">Last 7 days</option>
+      <option value="30d">Last 30 days</option>
+      <option value="custom">Custom range</option>
+    </select>
+    {dateRange==='custom' && <>
+      <input type="date" value={customStart} onChange={e=>setCustomStart(e.target.value)} className="input" />
+      <span>to</span>
+      <input type="date" value={customEnd} onChange={e=>setCustomEnd(e.target.value)} className="input" />
+    </>}
+  </div>
   {confirm&&<ConfirmDialog title={confirm.title} message={confirm.message} onConfirm={confirm.onConfirm} onCancel={()=>setConfirm(null)}/>} 
   <div className="stats">
     <Stat label="Total policies" value={String(summary?.policies??0).padStart(2,'0')} change="" icon={FileText}/>

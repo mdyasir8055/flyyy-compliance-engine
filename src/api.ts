@@ -70,7 +70,10 @@ export const uploadPolicy = (file: File, name?: string, framework = 'Internal') 
 export const deletePolicy = (id: string) => api.delete(`/api/policies/${id}`);
 
 // ---------- Scans ----------
-export const getScans = () => api.get<Scan[]>('/api/scans').then(r => r.data);
+export const getScans = (startDate?: string, endDate?: string) =>
+  api.get<Scan[]>('/api/scans', {
+    params: { start_date: startDate, end_date: endDate }
+  }).then(r => r.data);
 export const runScan = (policyId: string, evidence: any) =>
   api.post<ScanDetail>('/api/scans', { policy_id: policyId, evidence }).then(r => r.data);
 export const getScan = (id: string) => api.get<ScanDetail>(`/api/scans/${id}`).then(r => r.data);
@@ -85,6 +88,8 @@ export const deleteControl = (policyId: string, controlId: string) =>
   api.delete(`/api/policies/${policyId}/controls/${controlId}`);
 
 // ---------- Dashboard ----------
-export const getDashboardSummary = () =>
-  api.get<DashboardSummary>('/api/dashboard/summary').then(r => r.data);
+export const getDashboardSummary = (startDate?: string, endDate?: string) =>
+  api.get<DashboardSummary>('/api/dashboard/summary', {
+    params: { start_date: startDate, end_date: endDate }
+  }).then(r => r.data);
 export const resetAllData = () => api.delete('/api/dashboard/reset');
