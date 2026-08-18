@@ -1,11 +1,13 @@
 import json
 import re
+import time
 
 import httpx
 
 from app.config import settings
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+FALLBACK_MODEL = "openai/gpt-oss-120b"
 
 
 def _extract_json(text: str):
@@ -19,33 +21,84 @@ def _extract_json(text: str):
     return json.loads(text)
 
 
-def _chat(messages: list[dict], temperature: float = 0.2) -> str:
+def _chat(messages: list[dict], temperature: float = 0.2, max_tokens: int = None) -> str:
     if not settings.groq_api_key:
         raise RuntimeError("GROQ_API_KEY is not configured on the server")
 
-    resp = httpx.post(
-        GROQ_URL,
-        headers={"Authorization": f"Bearer {settings.groq_api_key}"},
-        json={
-            "model": settings.groq_model,
-            "messages": messages,
-            "temperature": temperature,
-        },
-        timeout=60,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return data["choices"][0]["message"]["content"]
+    attempted = [settings.groq_model or FALLBACK_MODEL]
+    if settings.groq_model != FALLBACK_MODEL:
+        attempted.append(FALLBACK_MODEL)
+
+    last_error = None
+    for model in attempted:
+        try:
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+            }
+            if max_tokens:
+                payload["max_tokens"] = max_tokens
+
+            resp = httpx.post(
+                GROQ_URL,
+                headers={"Authorization": f"Bearer {settings.groq_api_key}"},
+                json=payload,
+                timeout=60,
+            )
+            if resp.status_code == 404:
+                last_error = RuntimeError(f"Groq model '{model}' is unavailable (404)")
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            return data["choices"][0]["message"]["content"]
+        except httpx.HTTPStatusError as exc:
+            last_error = exc
+            if exc.response.status_code == 404:
+                continue
+            raise
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("Groq request failed without a response")
+
+
+_EXTRACTION_CHUNK_SIZE = 8000  # chars per chunk - conservative for free-tier token/rate limits
 
 
 def extract_controls_from_policy(policy_text: str) -> list[dict]:
-    """Ask Groq/Llama to read policy text and extract structured compliance controls."""
+    chunks = [policy_text[i:i + _EXTRACTION_CHUNK_SIZE]
+              for i in range(0, len(policy_text), _EXTRACTION_CHUNK_SIZE)] or [""]
+
+    all_controls: list[dict] = []
+    seen: set[tuple] = set()
+    for idx, chunk in enumerate(chunks):
+        if not chunk.strip():
+            continue
+        if idx > 0:
+            time.sleep(3)  # space out calls to stay under per-minute token rate limits
+        for control in _extract_controls_chunk(chunk, chunk_index=idx):
+            key = (control.get("target"), control.get("metric"))
+            if key not in seen:
+                seen.add(key)
+                all_controls.append(control)
+    print(f"[extract_controls_from_policy] processed {len(chunks)} chunk(s), "
+          f"extracted {len(all_controls)} unique control(s) total")
+    return all_controls
+
+
+def _extract_controls_chunk(policy_text: str, chunk_index: int = 0) -> list[dict]:
+    """Extract controls from a single chunk of policy text. Returns [] on parse
+    failure so one bad chunk can't take down the whole extraction - but logs
+    the failure so it's visible in backend logs instead of silently vanishing."""
     system = (
         "You are a compliance engineer. You read security/compliance policy documents "
         "and extract concrete, measurable controls that can be automatically evaluated "
         "against infrastructure evidence. Respond with ONLY a JSON array, no prose."
     )
-    user = f"""Extract compliance controls from the policy text below.
+    user = f"""Extract compliance controls from the policy text excerpt below. This may be
+one part of a larger multi-page policy document, so only extract what this excerpt actually
+specifies - do not assume context you don't see here.
 
 For each control return an object with these exact fields:
 - "target": the system/resource the control applies to (e.g. "production_database_server")
@@ -54,24 +107,31 @@ For each control return an object with these exact fields:
 - "threshold": the expected value as a string (e.g. "85%", "true", "1.2")
 - "severity": one of "High", "Medium", "Low"
 
-Return between 3 and 15 controls depending on how much the policy specifies.
-If the policy text is vague, infer reasonable, industry-standard controls that fit its stated intent.
+Extract every distinct control this excerpt specifies. If this excerpt contains no
+extractable requirements (e.g. it's pure narrative text with no concrete rule), return
+an empty array.
 
-Policy text:
+Policy text excerpt:
 ---
-{policy_text[:12000]}
+{policy_text}
 ---
 
 Respond with ONLY the JSON array."""
 
-    content = _chat(
-        [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        temperature=0.2,
-    )
-    controls = _extract_json(content)
-    if not isinstance(controls, list):
-        raise ValueError("Expected a JSON array of controls from Groq")
-    return controls
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+    for attempt in range(2):
+        try:
+            content = _chat(messages, max_tokens=3000)
+            result = _extract_json(content)
+            return result if isinstance(result, list) else []
+        except Exception as e:
+            print(f"[extract_controls_chunk] chunk {chunk_index} attempt {attempt+1} failed: {e}")
+            if attempt == 0:
+                time.sleep(8)  # back off and retry once before giving up on this chunk
+            else:
+                return []
+    return []
 
 
 def reconcile_evidence(controls: list[dict], evidence: dict) -> list[dict]:
