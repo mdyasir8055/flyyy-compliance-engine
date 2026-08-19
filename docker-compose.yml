@@ -21,7 +21,7 @@ services:
     environment:
       DATABASE_URL: postgresql://flyyy:flyyy@db:5432/flyyy
       GROQ_API_KEY: ${GROQ_API_KEY}
-      GROQ_MODEL: llama-3.3-70b-versatile
+      GROQ_MODEL: openai/gpt-oss-120b
       CORS_ORIGINS: http://localhost:5173
     ports:
       - "8000:8000"

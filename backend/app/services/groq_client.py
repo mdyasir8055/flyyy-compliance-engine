@@ -76,7 +76,7 @@ def extract_controls_from_policy(policy_text: str) -> list[dict]:
         if not chunk.strip():
             continue
         if idx > 0:
-            time.sleep(3)  # space out calls to stay under per-minute token rate limits
+            time.sleep(5)  # space out calls to stay under per-minute token rate limits
         for control in _extract_controls_chunk(chunk, chunk_index=idx):
             key = (control.get("target"), control.get("metric"))
             if key not in seen:
@@ -120,16 +120,19 @@ Respond with ONLY the JSON array."""
 
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
-    for attempt in range(2):
+    max_attempts = 4
+    for attempt in range(max_attempts):
         try:
             content = _chat(messages, max_tokens=3000)
             result = _extract_json(content)
             return result if isinstance(result, list) else []
         except Exception as e:
-            print(f"[extract_controls_chunk] chunk {chunk_index} attempt {attempt+1} failed: {e}")
-            if attempt == 0:
-                time.sleep(8)  # back off and retry once before giving up on this chunk
+            print(f"[extract_controls_chunk] chunk {chunk_index} attempt {attempt+1}/{max_attempts} failed: {e}")
+            if attempt < max_attempts - 1:
+                backoff = 10 * (attempt + 1)  # 10s, 20s, 30s - increasing wait as the rate-limit window clears
+                time.sleep(backoff)
             else:
+                print(f"[extract_controls_chunk] chunk {chunk_index} giving up after {max_attempts} attempts")
                 return []
     return []
 
