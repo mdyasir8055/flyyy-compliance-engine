@@ -44,7 +44,7 @@ function Dashboard(){
       qc.invalidateQueries({queryKey:['dashboard']});
     },
   });
-  const notEvaluated=summary?Math.max(summary.scans*0,0):0;
+  const notEvaluated=summary?.not_evaluated??0;
   return <section className="page"><PageTitle eyebrow="Workspace overview" title="Good morning" description="Monitor your organization's compliance posture and policy coverage." action={<div className="inline-actions"><Button icon={Trash2} onClick={()=>setConfirm({title:'Reset all data',message:'This will permanently delete ALL policies, controls, scans, and results. This cannot be undone. Continue?',onConfirm:()=>resetMut.mutate()})}>Reset all data</Button><Button primary icon={Plus} onClick={()=>navigate('/scans/new')}>Run a scan</Button></div>}/>
   <div className="inline-actions" style={{marginBottom: '16px'}}>
     <select value={dateRange} onChange={e=>setDateRange(e.target.value as any)} className="select">
@@ -104,6 +104,7 @@ function Policies(){
   const qc=useQueryClient();
   const [openMenuId,setOpenMenuId]=useState<string|null>(null);
   const [confirm,setConfirm]=useState<any>(null);
+  const [searchTerm,setSearchTerm]=useState('');
   useEffect(()=>{
     const handleOutsideClick=(event:MouseEvent)=>{
       const target=event.target;
@@ -118,9 +119,10 @@ function Policies(){
     onSuccess:()=>qc.invalidateQueries({queryKey:['policies']}),
   });
   const {data:policies,isLoading}=useQuery({queryKey:['policies'],queryFn:api.getPolicies});
+  const filteredPolicies=(policies??[]).filter(p=>p.name.toLowerCase().includes(searchTerm.toLowerCase()));
   return <section className="page"><PageTitle eyebrow="Governance library" title="Policies" description="Manage the policies that power your compliance evaluations." action={<Button primary icon={UploadCloud} onClick={()=>navigate('/policies/upload')}>Upload policy</Button>}/>
-  <div className="toolbar"><div className="search large"><Search size={16}/><input placeholder="Search policies..."/></div><Button icon={Filter}>Filters</Button></div>
-  <div className="card table-card">{isLoading?<div className="empty-row">Loading policies...</div>:<div className="table-scroll"><table><thead><tr><th>Policy name</th><th>Framework</th><th>Uploaded</th><th>Controls</th><th>Status</th><th></th></tr></thead><tbody>{(policies??[]).map(p=><tr key={p.id} onClick={()=>navigate(`/policies/${p.id}`)} className="clickable"><td><strong>{p.name}</strong><small>{p.id}</small></td><td><Badge>{p.framework}</Badge></td><td>{fmtDate(p.uploaded_at)}</td><td>{p.controls_count}</td><td><Badge tone={p.status==='Active'?'green':'neutral'}>{p.status}</Badge></td><td><div className="row-actions" onClick={e=>e.stopPropagation()}><button type="button" onClick={e=>{e.stopPropagation();setOpenMenuId(current=>current===p.id?null:p.id);}} aria-label={`Open actions for ${p.name}`}><MoreHorizontal size={17}/></button>{openMenuId===p.id&&<div className="row-actions-menu" onClick={e=>e.stopPropagation()}><button type="button" onClick={e=>{e.stopPropagation();setConfirm({title:'Delete this policy',message:'Delete this policy and all its scans? This cannot be undone.',onConfirm:()=>deleteMut.mutate(p.id)});setOpenMenuId(null);}}>Delete</button></div>}</div></td></tr>)}{(policies??[]).length===0&&<tr><td colSpan={6} className="empty-row">No policies yet. Upload a PDF to get started.</td></tr>}</tbody></table>{confirm&&<ConfirmDialog title={confirm.title} message={confirm.message} onConfirm={confirm.onConfirm} onCancel={()=>setConfirm(null)}/>}</div>}</div>
+  <div className="toolbar"><div className="search large"><Search size={16}/><input placeholder="Search policies..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/></div><Button icon={Filter}>Filters</Button></div>
+  <div className="card table-card">{isLoading?<div className="empty-row">Loading policies...</div>:<div className="table-scroll"><table><thead><tr><th>Policy name</th><th>Framework</th><th>Uploaded</th><th>Controls</th><th>Status</th><th></th></tr></thead><tbody>{filteredPolicies.map(p=><tr key={p.id} onClick={()=>navigate(`/policies/${p.id}`)} className="clickable"><td><strong>{p.name}</strong><small>{p.id}</small></td><td><Badge>{p.framework}</Badge></td><td>{fmtDate(p.uploaded_at)}</td><td>{p.controls_count}</td><td><Badge tone={p.status==='Active'?'green':'neutral'}>{p.status}</Badge></td><td><div className="row-actions" onClick={e=>e.stopPropagation()}><button type="button" onClick={e=>{e.stopPropagation();setOpenMenuId(current=>current===p.id?null:p.id);}} aria-label={`Open actions for ${p.name}`}><MoreHorizontal size={17}/></button>{openMenuId===p.id&&<div className="row-actions-menu" onClick={e=>e.stopPropagation()}><button type="button" onClick={e=>{e.stopPropagation();setConfirm({title:'Delete this policy',message:'Delete this policy and all its scans? This cannot be undone.',onConfirm:()=>deleteMut.mutate(p.id)});setOpenMenuId(null);}}>Delete</button></div>}</div></td></tr>)}{filteredPolicies.length===0&&<tr><td colSpan={6} className="empty-row">No policies yet. Upload a PDF to get started.</td></tr>}</tbody></table>{confirm&&<ConfirmDialog title={confirm.title} message={confirm.message} onConfirm={confirm.onConfirm} onCancel={()=>setConfirm(null)}/>}</div>}</div>
   </section>
 }
 
@@ -197,16 +199,18 @@ function NewScan(){
 
 function Results(){
   const {id}=useParams();
+  const [statusFilter,setStatusFilter]=useState<'All'|'Passed'|'Failed'|'Not Evaluated'>('All');
   const {data:scan,isLoading}=useQuery({queryKey:['scan',id],queryFn:()=>api.getScan(id!),enabled:!!id});
   if(isLoading||!scan)return <section className="page"><div className="empty-row">Loading results...</div></section>;
   const passed=scan.results.filter(r=>r.status==='Passed').length;
   const failed=scan.results.filter(r=>r.status==='Failed').length;
   const notEval=scan.results.filter(r=>r.status==='Not Evaluated').length;
+  const filteredResults=statusFilter==='All'?scan.results:scan.results.filter(r=>r.status===statusFilter);
   return <section className="page"><PageTitle eyebrow="Scan results" title="Compliance evaluation" description={`${scan.policy_name} · Completed ${fmtDate(scan.run_at)}`}/>
   <div className="result-banner"><div className="result-score"><div className="mini-ring"><strong>{scan.score}%</strong></div><div><Badge tone={scan.status==='Compliant'?'green':'amber'}>{scan.status}</Badge><h2>{scan.status==='Compliant'?'Controls are in good shape':'Some controls need attention'}</h2><p>{passed} of {passed+failed} evaluated controls passed across {scan.assets} assets.</p></div></div>
-  <div className="result-counts"><div><b>{passed}</b><span>Passed</span></div><div><b>{failed}</b><span>Failed</span></div><div><b>{notEval}</b><span>Not evaluated</span></div></div></div>
+  <div className="result-counts"><div className={statusFilter==='Passed'?'active':''} onClick={()=>setStatusFilter(statusFilter==='Passed'?'All':'Passed')} style={{cursor:'pointer',background:statusFilter==='Passed'?'#e4f7f4':undefined}}><b>{passed}</b><span>Passed</span></div><div className={statusFilter==='Failed'?'active':''} onClick={()=>setStatusFilter(statusFilter==='Failed'?'All':'Failed')} style={{cursor:'pointer',background:statusFilter==='Failed'?'#fff0ef':undefined}}><b>{failed}</b><span>Failed</span></div><div className={statusFilter==='Not Evaluated'?'active':''} onClick={()=>setStatusFilter(statusFilter==='Not Evaluated'?'All':'Not Evaluated')} style={{cursor:'pointer',background:statusFilter==='Not Evaluated'?'#f1f3f5':undefined}}><b>{notEval}</b><span>Not evaluated</span></div></div></div>
   <div className="section-heading"><div><h2>Control results</h2><p>Review each result and its audit reasoning.</p></div></div>
-  <div className="results-list">{scan.results.map((r,i)=><div className="result-card" key={i}><div className="result-card-head"><div className={cn('result-icon',r.status==='Passed'?'success':'failure')}>{r.status==='Passed'?<CheckCircle2 size={19}/>:<XCircle size={19}/>}</div><div><h3>{r.name}</h3><small className="mono">{r.target}</small></div><Badge tone={r.status==='Passed'?'green':r.status==='Failed'?'red':'neutral'}>{r.status}</Badge><ChevronRight size={17}/></div><div className="result-detail"><div><span>Expected</span><b className="mono">{r.expected}</b></div><div><span>Actual</span><b className="mono">{r.actual}</b></div><div className="reason"><span>Audit reasoning</span><p>{r.reason}</p></div></div></div>)}</div>
+  <div className="results-list">{filteredResults.map((r,i)=><div className="result-card" key={i}><div className="result-card-head"><div className={cn('result-icon',r.status==='Passed'?'success':'failure')}>{r.status==='Passed'?<CheckCircle2 size={19}/>:<XCircle size={19}/>}</div><div><h3>{r.name}</h3><small className="mono">{r.target}</small></div><Badge tone={r.status==='Passed'?'green':r.status==='Failed'?'red':'neutral'}>{r.status}</Badge><ChevronRight size={17}/></div><div className="result-detail"><div><span>Expected</span><b className="mono">{r.expected}</b></div><div><span>Actual</span><b className="mono">{r.actual}</b></div><div className="reason"><span>Audit reasoning</span><p>{r.reason}</p></div></div></div>)}</div>
   </section>
 }
 

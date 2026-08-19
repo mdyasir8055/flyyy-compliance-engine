@@ -52,6 +52,7 @@ export type DashboardSummary = {
   scans: number;
   passed: number;
   failed: number;
+  not_evaluated: number;
   score: number;
 };
 

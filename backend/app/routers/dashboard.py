@@ -32,9 +32,10 @@ def summary(
         result_query = db.query(models.ScanResult).filter(models.ScanResult.scan_id.in_(scan_ids))
         passed = result_query.filter(models.ScanResult.status == "Passed").count()
         failed = result_query.filter(models.ScanResult.status == "Failed").count()
+        not_evaluated = result_query.filter(models.ScanResult.status == "Not Evaluated").count()
         avg_score = db.query(func.avg(models.Scan.score)).filter(models.Scan.id.in_(scan_ids)).scalar()
     else:
-        passed = failed = 0
+        passed = failed = not_evaluated = 0
         avg_score = None
 
     return schemas.DashboardSummary(
@@ -42,6 +43,7 @@ def summary(
         scans=scans_count,
         passed=passed,
         failed=failed,
+        not_evaluated=not_evaluated,
         score=round(avg_score) if avg_score else 0,
     )
 

@@ -87,4 +87,5 @@ class DashboardSummary(BaseModel):
     scans: int
     passed: int
     failed: int
+    not_evaluated: int
     score: int
