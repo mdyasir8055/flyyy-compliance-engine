@@ -72,13 +72,9 @@ Trade-offs below for why that mattered).
 
 ## Architecture
 
-![Architecture diagram](flyyy-ai-compliance-platform-fullstack\image.png)
+![Architecture diagram](./image.png)
 
-*(Excalidraw diagram: PDF text extraction → chunked control extraction via
-Groq → merge/de-dupe → Postgres, then evidence JSON → Groq reconciliation
-(matches controls to evidence) → deterministic Python evaluator (pass/fail,
-bold-bordered to mark it as the one non-AI step) → Groq audit reasoning →
-Postgres → React dashboard.)
+
 
 **Key design decision: AI never decides pass/fail.** Three separate LLM calls
 touch a scan (chunked control extraction, evidence reconciliation, audit
